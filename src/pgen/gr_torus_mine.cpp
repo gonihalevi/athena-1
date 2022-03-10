@@ -60,6 +60,8 @@ Real CalculateLFromRPeak(Real r);
 Real CalculateRPeakFromL(Real l_target);
 Real LogHAux(Real r, Real sth);
 void CalculateVelocityInTorus(Real r, Real sth, Real *p_ut, Real *p_uph);
+void CalculateVelocityInTiltedTorus(Real r, Real th, Real ph, Real *p_ut, Real *p_ur,
+    Real *p_uth, Real *p_uph);
 Real IntegratedA1(Real x1_m, Real x1_p, Real x2, Real x3);
 Real IntegratedA2(Real x1, Real x2_m, Real x2_p, Real x3);
 Real IntegratedA3(Real x1, Real x2, Real x3_m, Real x3_p);
@@ -140,7 +142,7 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
       pot_rho_pow = pin->GetReal("problem", "pot_rho_pow");
       pot_rho_cutoff = pin->GetReal("problem", "pot_rho_cutoff");
       }
-    } else if (field_config_str == "loops") {
+    else if (field_config_str == "loops") {
       field_config = MagneticFieldConfigs::loops;
       pot_r_min = pin->GetReal("problem", "pot_r_min");
       pot_r_max = pin->GetReal("problem", "pot_r_max");
@@ -149,7 +151,6 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
       pot_theta_num = pin->GetReal("problem", "pot_theta_num");
       pot_pgas_pow = pin->GetReal("problem", "pot_pgas_pow");
       pot_pgas_cutoff = pin->GetReal("problem", "pot_pgas_cutoff");
-      }
     } else {
       std::stringstream msg;
       msg << "### FATAL ERROR in Problem Generator\n"
@@ -918,7 +919,7 @@ void TransformContravariantFromBoyerLindquist(Real at_bl, Real ar_bl, Real ath_b
     Real *p_a3) {
   if (std::strcmp(COORDINATE_SYSTEM, "kerr-schild") == 0) {
     Real delta = SQR(x1) - 2.0 * m * x1 + SQR(a);
-    *p_a0 = ar_bl + 2.0 * m * x1 / delta * ar_bl;
+    *p_a0 = at_bl + 2.0 * m * x1 / delta * ar_bl;
     *p_a1 = ar_bl;
     *p_a2 = ath_bl;
     *p_a3 = aph_bl + a / delta * ar_bl;
@@ -1120,6 +1121,52 @@ void CalculateVelocityInTorus(Real r, Real sth, Real *p_ut, Real *p_uph) {
 } // namespace
 
 //----------------------------------------------------------------------------------------
+// Function for computing 4-velocity components at a given position inside tilted torus
+// Inputs:
+//   r: radial Boyer-Lindquist coordinate
+//   th,ph: polar and azimuthal Boyer-Lindquist coordinates aligned with black hole
+// Outputs:
+//   p_ut,p_ur,p_uth,p_uph: u^\mu set (Boyer-Lindquist coordinates)
+// Notes:
+//   First finds corresponding location in untilted torus.
+//   Next calculates velocity at that point in untilted case.
+//   Finally transforms that velocity into coordinates in which torus is tilted.
+
+namespace {
+void CalculateVelocityInTiltedTorus(Real r, Real th, Real ph, Real *p_ut, Real *p_ur,
+    Real *p_uth, Real *p_uph) {
+  // Calculate corresponding location
+  Real sth = std::sin(th);
+  Real cth = std::cos(th);
+  Real sph = std::sin(ph);
+  Real cph = std::cos(ph);
+  Real sth_t, cth_t, ph_t;
+  sth_t = std::abs(sth);
+  cth_t = cth;
+  ph_t = (sth < 0.0) ? ph - PI : ph;
+  Real sph_t = std::sin(ph_t);
+  Real cph_t = std::cos(ph_t);
+
+  // Calculate untilted velocity
+  Real u0_t, u3_t;
+  CalculateVelocityInTorus(r, sth_t, &u0_t, &u3_t);
+  Real u1_t = 0.0;
+  Real u2_t = 0.0;
+
+  // Account for tilt
+  *p_ut = u0_t;
+  *p_ur = u1_t;
+  *p_uth = u2_t;
+  *p_uph = u3_t;
+  if (sth < 0.0) {
+    *p_uth *= -1.0;
+    *p_uph *= -1.0;
+  }
+  return;
+}
+} // namespace
+
+//----------------------------------------------------------------------------------------
 // Function for calculating integrated 1-component of vector potential
 // Inputs:
 //   x1_m,x1_p: x^1 limits of integration
@@ -1139,6 +1186,9 @@ Real IntegratedA1(Real x1_m, Real x1_p, Real x2, Real x3) {
     if (std::strcmp(COORDINATE_SYSTEM, "kerr-schild") == 0) {
       return 0.0;
     } else {
+    return NAN;
+    }
+  } else {
     return NAN;
   }
 }
@@ -1165,6 +1215,9 @@ Real IntegratedA2(Real x1, Real x2_m, Real x2_p, Real x3) {
       return 0.0;
     } else {
     return NAN;
+    }
+  } else {
+    return NAN;
   }
 }
 } // namespace
@@ -1190,6 +1243,9 @@ Real IntegratedA3(Real x1, Real x2, Real x3_m, Real x3_p) {
       Real a_r, a_th, a_ph;
       VectorPotential(x1, x2, 0.5 * (x3_m + x3_p), &a_r, &a_th, &a_ph);
       return a_ph * (x3_p - x3_m);
+  } else {
+    return NAN;
+    }
   } else {
     return NAN;
   }
